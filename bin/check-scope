@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+// bin/check-scope [path-to-plan]
+// Checks that EVERYTHING changed on the branch (commits since main + uncommitted changes + new files)
+// is inside videos/<slug>/** or listed under "## Files" in the plan. No dependencies: git and node.
+// Exits 1 when something is out of scope.
+//
+// Default plan: videos/<slug>/plan.md, with <slug> = the branch without its prefix (video/x → x).
+import { execSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+process.chdir(root);
+
+const git = (args) => {
+  try { return execSync(`git ${args}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
+  catch { return ''; }
+};
+
+const branch = git('branch --show-current');
+const branchSlug = branch.includes('/') ? branch.slice(branch.indexOf('/') + 1) : branch;
+const plan = process.argv[2] || `videos/${branchSlug}/plan.md`;
+if (!existsSync(plan)) {
+  console.error(`ERROR: plan ${plan} does not exist (branch "${branch}"). Create it with /storyboard or pass it as an argument.`);
+  process.exit(1);
+}
+const slug = basename(dirname(resolve(plan)));
+const text = readFileSync(plan, 'utf8');
+
+// --- allowlist: "- `path`" (or "- path") lines inside "## Files", plus the video's own folder
+const section = (name) => {
+  const m = text.match(new RegExp(`^## ${name}[^\\n]*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, 'm'));
+  return m ? m[1] : '';
+};
+const patterns = section('Files').split('\n')
+  .filter((l) => /^\s*[-*]\s+/.test(l))
+  .map((l) => {
+    const noBullet = l.replace(/^\s*[-*]\s+/, '');
+    const quoted = noBullet.match(/`([^`]+)`/);
+    return (quoted ? quoted[1] : noBullet.split(/\s+/)[0]).trim();
+  })
+  .filter(Boolean);
+patterns.push(`videos/${slug}/**`, 'docs/adr/*.md');
+
+// --- glob → regex: ** = any path, * = within one segment, ? = one character
+const toRegex = (glob) => new RegExp('^' + glob
+  .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  .replace(/\*\*\//g, '\u0001')
+  .replace(/\*\*/g, '\u0002')
+  .replace(/\*/g, '[^/]*')
+  .replace(/\?/g, '[^/]')
+  .replace(/\u0001/g, '(?:.*/)?')
+  .replace(/\u0002/g, '.*') + '$');
+const regexes = patterns.map(toRegex);
+
+// --- what changed: diff against the branch base + untracked files
+const base = git('merge-base main HEAD') || git('merge-base origin/main HEAD') || 'HEAD';
+const changed = new Set([
+  ...git(`diff --name-only ${base}`).split('\n'),
+  ...git('ls-files --others --exclude-standard').split('\n'),
+].filter(Boolean));
+
+const outside = [...changed].filter((f) => !regexes.some((r) => r.test(f)));
+for (const f of outside) console.log(`OUT OF SCOPE: ${f}`);
+if (outside.length === 0) console.log(`SCOPE OK (${changed.size} files) — plan ${plan}`);
+else console.log(`Widen "## Files" in ${plan} with Luka's approval, or move the change to its own branch.`);
+process.exit(outside.length === 0 ? 0 : 1);

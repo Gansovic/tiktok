@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# bin/check [--quick] [slug] — THE gate of this repo. Any red step aborts with exit != 0.
+#   quick: ffmpeg present, hyperframes lint, 1080x1920 root, pipeline docs + status, no tracked file > 5 MB
+#   full : quick + `hyperframes check` (runtime, layout, contrast in headless Chrome) + draft render
+#          verified with ffprobe (via bin/render)
+# Without a slug it checks every folder in videos/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+. bin/_env.sh
+
+quick=""; slugs=()
+for a in "$@"; do
+  case "$a" in --quick) quick=1 ;; *) slugs+=("$a") ;; esac
+done
+if [ ${#slugs[@]} -eq 0 ]; then
+  for d in videos/*/; do [ -f "${d}index.html" ] && slugs+=("$(basename "$d")"); done
+fi
+
+step() { echo; echo "== $*"; }
+fail() { echo "RED: $*" >&2; exit 1; }
+
+step "tools"
+command -v ffmpeg >/dev/null || fail "ffmpeg not on PATH (brew install ffmpeg)"
+command -v ffprobe >/dev/null || fail "ffprobe not on PATH (brew install ffmpeg)"
+[ -d node_modules ] || fail "node_modules missing (pnpm install)"
+echo "node $(node -v), $(ffmpeg -version | head -1 | cut -d' ' -f1-3)"
+
+step "tracked files over 5 MB"
+big=$(git ls-files -z | xargs -0 -I{} find {} -maxdepth 0 -size +5M 2>/dev/null || true)
+[ -z "$big" ] || fail "too large for git: $big"
+echo "none"
+
+[ ${#slugs[@]} -gt 0 ] || { echo; echo "no videos yet"; echo; echo "ALL GREEN"; exit 0; }
+
+for slug in "${slugs[@]}"; do
+  dir="videos/$slug"
+  [ -f "$dir/index.html" ] || fail "$dir/index.html does not exist"
+
+  step "$slug: pipeline docs"
+  for doc in brief script plan; do [ -f "$dir/$doc.md" ] || fail "$dir/$doc.md missing"; done
+  for doc in script plan; do
+    grep -qiE '^Status:[[:space:]]*approved' "$dir/$doc.md" || fail "$dir/$doc.md is not 'Status: approved'"
+  done
+  echo "brief, script (approved), plan (approved)"
+
+  step "$slug: canvas 1080x1920"
+  grep -q 'data-width="1080"' "$dir/index.html" && grep -q 'data-height="1920"' "$dir/index.html" \
+    || fail "$dir/index.html root must be data-width=\"1080\" data-height=\"1920\""
+  echo "ok"
+
+  step "$slug: hyperframes lint"
+  pnpm exec hyperframes lint "$dir"
+
+  if [ -n "$quick" ]; then
+    echo; echo "== $slug: runtime check + render: skipped (--quick)"
+  else
+    step "$slug: hyperframes check (runtime, layout, contrast)"
+    pnpm exec hyperframes check "$dir" --no-cache
+    step "$slug: draft render"
+    bin/render "$slug" --draft
+  fi
+done
+
+echo; echo "ALL GREEN"

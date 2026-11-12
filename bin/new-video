@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# bin/new-video <slug> — create videos/<slug>/ from templates/video, a snapshot of brand/, and the
+# pipeline doc templates. Refuses to overwrite. Used by /brief.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+slug=${1:-}
+echo "$slug" | grep -qE '^[a-z0-9][a-z0-9-]*$' || { echo "usage: bin/new-video <slug>   (lowercase letters, digits, dashes)" >&2; exit 1; }
+dir="videos/$slug"
+[ ! -e "$dir" ] || { echo "ERROR: $dir already exists" >&2; exit 1; }
+
+mkdir -p "$dir"
+cp -R templates/video/. "$dir/"
+mkdir -p "$dir/brand" "$dir/compositions" "$dir/assets"
+cp brand/*.css "$dir/brand/"
+for doc in brief script plan review; do
+  sed "s/<slug>/$slug/g" "docs/templates/$doc.md" > "$dir/$doc.md"
+done
+created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+sed -i '' "s/__SLUG__/$slug/g; s/__CREATED__/$created/g" "$dir/meta.json"
+touch "$dir/compositions/.gitkeep" "$dir/assets/.gitkeep"
+echo "created $dir"

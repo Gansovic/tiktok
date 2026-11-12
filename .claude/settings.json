@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "hyperframes": {
+      "source": { "source": "github", "repo": "heygen-com/hyperframes" }
+    }
+  },
+  "enabledPlugins": {
+    "hyperframes@hyperframes": true
+  },
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(rm -rf*)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(nc *)",
+      "Bash(ssh *)",
+      "Bash(docker *)",
+      "Bash(npm publish*)",
+      "Bash(pnpm exec hyperframes share*)",
+      "Bash(pnpm exec hyperframes publish*)",
+      "Bash(pnpm exec hyperframes auth*)",
+      "Bash(pnpm exec hyperframes cloud*)",
+      "Bash(pnpm exec hyperframes lambda*)",
+      "Bash(pnpm exec hyperframes cloudrun*)",
+      "Read(.env)",
+      "Read(.env.local)",
+      "Read(*.pem)",
+      "Read(*.key)",
+      "Read(*credentials*.json)",
+      "Edit(.env)",
+      "Edit(.env.local)",
+      "Edit(*.pem)",
+      "Edit(*.key)",
+      "Edit(*credentials*.json)",
+      "Write(.env)",
+      "Write(.env.local)",
+      "Write(*.pem)",
+      "Write(*.key)",
+      "Write(*credentials*.json)"
+    ],
+    "ask": [
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(gh *)",
+      "Bash(pnpm add*)",
+      "Bash(npx *)",
+      "Bash(pnpm exec hyperframes upgrade*)",
+      "Bash(pnpm exec hyperframes update*)"
+    ],
+    "allow": [
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(wc *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git show*)",
+      "Bash(git merge-base*)",
+      "Bash(git ls-files*)",
+      "Bash(bin/check*)",
+      "Bash(bin/render*)",
+      "Bash(bin/new-video*)",
+      "Bash(pnpm exec hyperframes lint*)",
+      "Bash(pnpm exec hyperframes check*)",
+      "Bash(pnpm exec hyperframes preview*)",
+      "Bash(pnpm exec hyperframes render*)",
+      "Bash(pnpm exec hyperframes snapshot*)",
+      "Bash(pnpm exec hyperframes doctor*)",
+      "Bash(pnpm exec hyperframes info*)",
+      "Bash(pnpm exec hyperframes docs*)",
+      "Bash(pnpm exec hyperframes add*)",
+      "Bash(pnpm exec hyperframes tts*)",
+      "Bash(pnpm exec hyperframes transcribe*)",
+      "Bash(ffprobe *)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/block-secrets.sh" }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/lint-video.sh" }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": ".claude/hooks/scope-reminder.sh" }]
+      }
+    ]
+  }
+}
