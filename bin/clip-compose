@@ -1,0 +1,199 @@
+#!/usr/bin/env node
+// bin/clip-compose <slug>
+// Generates clips/<slug>/index.html (1080x1920 HyperFrames composition) from clip.md, the footage in
+// assets/source.mp4 and, when present, assets/transcript.json (word timings from bin/clip-transcribe).
+// index.html is GENERATED: change clip.md and run this again; hand edits are overwritten.
+// No dependencies: node and ffprobe.
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+process.chdir(root);
+const die = (msg) => { console.error(`ERROR: ${msg}`); process.exit(1); };
+
+const slug = process.argv[2];
+if (!slug || !/^[a-z0-9][a-z0-9-]*$/.test(slug)) die('usage: bin/clip-compose <slug>');
+const dir = `clips/${slug}`;
+if (!existsSync(`${dir}/clip.md`)) die(`${dir}/clip.md does not exist (bin/new-clip ${slug})`);
+if (!existsSync(`${dir}/assets/source.mp4`)) die(`${dir}/assets/source.mp4 does not exist (bin/clip-fetch)`);
+
+// --- clip.md: "Key: value" lines above the first "## " heading
+const md = readFileSync(`${dir}/clip.md`, 'utf8').split(/^## /m)[0].replace(/<!--[\s\S]*?-->/g, '');
+const field = (key) => {
+  const m = md.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'));
+  return m ? m[1].trim() : '';
+};
+const num = (key, fallback) => {
+  const v = parseFloat(field(key));
+  return Number.isFinite(v) ? v : fallback;
+};
+const layout = field('Layout') || 'crop';
+if (!['crop', 'stack', 'fit'].includes(layout)) die(`Layout must be crop, stack or fit (got "${layout}")`);
+const hook = field('Hook');
+const credit = field('Credit');
+if (!hook) die('clip.md: "Hook:" is empty');
+if (!credit) die('clip.md: "Credit:" is empty (the creator is always credited on screen)');
+const start = num('Start', 0);
+if (start < 0) die('clip.md: "Start:" must be 0 or more');
+const dur = num('Target seconds', 0);
+if (!(dur >= 7 && dur <= 60)) die(`clip.md: "Target seconds:" must be 7–60 (got ${field('Target seconds') || 'nothing'})`);
+const cropX = Math.min(100, Math.max(0, num('Crop x', 50)));
+const zooms = field('Zooms').split(',').map((s) => parseFloat(s)).filter((t) => Number.isFinite(t) && t >= 0 && t < dur - 0.3);
+
+// --- footage
+const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries',
+  'stream=width,height', '-show_entries', 'format=duration', '-of', 'json', `${dir}/assets/source.mp4`], { encoding: 'utf8' }));
+const sw = probe.streams?.[0]?.width, sh = probe.streams?.[0]?.height;
+const sdur = parseFloat(probe.format?.duration);
+if (!sw || !sh) die('ffprobe found no video stream in assets/source.mp4');
+if (start + dur > sdur + 0.05) die(`Start ${start} + Target seconds ${dur} runs past the footage (${sdur.toFixed(2)} s)`);
+let hasAudio = false;
+try {
+  hasAudio = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0',
+    `${dir}/assets/source.mp4`], { encoding: 'utf8' }).trim() !== '';
+} catch { /* no audio stream */ }
+
+const W = 1080, H = 1920;
+const r = (n) => Math.round(n * 100) / 100;
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const box = (o) => Object.entries(o).map(([k, v]) => `${k}: ${r(v)}px`).join('; ');
+// A window (wx, wy, ww, wh) of the source scaled to cover a frame of fw x fh: returns the <video> box.
+const cover = (fw, fh, wx, wy, ww, wh) => {
+  const s = Math.max(fw / ww, fh / wh);
+  return { width: sw * s, height: sh * s, left: -wx * s - (ww * s - fw) / 2, top: -wy * s - (wh * s - fh) / 2 };
+};
+// The 9:16-ish window of gameplay for a frame of fw x fh, slid left→right by "Crop x".
+const slide = (fw, fh) => {
+  const s = Math.max(fw / sw, fh / sh);
+  return { width: sw * s, height: sh * s, left: -(sw * s - fw) * (cropX / 100), top: -(sh * s - fh) / 2 };
+};
+
+const media = (id, style, withAudio, z) =>
+  `<video id="${id}" class="clip" src="assets/source.mp4" data-start="0" data-duration="${r(dur)}" data-media-start="${r(start)}" data-track-index="${z}" ${withAudio && hasAudio ? 'playsinline data-has-audio="true"' : 'muted playsinline'} style="position: absolute; ${box(style)}; z-index: ${z}"></video>`;
+
+// Layout: where footage, hook and captions go. Text stays between y=168 and y=1330 and left of x=940.
+let stage, hookTop, capTop;
+if (layout === 'crop') {
+  stage = `<div class="pane" style="${box({ left: 0, top: 0, width: W, height: H })}"><div id="zoom" class="zoom">
+          ${media('src', slide(W, H), true, 1)}
+        </div></div>`;
+  hookTop = 232; capTop = 1090;
+} else if (layout === 'stack') {
+  const cam = field('Cam').split(',').map((s) => parseFloat(s));
+  if (cam.length !== 4 || cam.some((n) => !Number.isFinite(n))) die('Layout stack needs "Cam: x,y,w,h" (facecam box in source pixels)');
+  const [cx, cy, cw, ch] = cam;
+  if (cx < 0 || cy < 0 || cw <= 0 || ch <= 0 || cx + cw > sw || cy + ch > sh) die(`"Cam: ${field('Cam')}" must be a box inside the ${sw}x${sh} source`);
+  const camH = 700;
+  stage = `<div class="pane" style="${box({ left: 0, top: 0, width: W, height: camH })}">
+          ${media('cam', cover(W, camH, ...cam), false, 1)}
+        </div>
+        <div class="pane" style="${box({ left: 0, top: camH, width: W, height: H - camH })}"><div id="zoom" class="zoom">
+          ${media('src', slide(W, H - camH), true, 2)}
+        </div></div>`;
+  hookTop = 590; capTop = 1110;
+} else {
+  // Whole frame, as large as fits between the hook (ends ~y=480) and the captions (start y=1160).
+  const top = 500, maxH = 620;
+  const s = Math.min(W / sw, maxH / sh);
+  const fw = sw * s, fh = sh * s;
+  stage = `<div class="pane" style="${box({ left: (W - fw) / 2, top: top + (maxH - fh) / 2, width: fw, height: fh })}"><div id="zoom" class="zoom">
+          ${media('src', { width: fw, height: fh, left: 0, top: 0 }, true, 1)}
+        </div></div>`;
+  hookTop = 232; capTop = top + maxH + 40;
+}
+
+// --- hook: accent words coloured
+const accent = field('Hook accent');
+let hookHtml = esc(hook);
+if (accent && hook.includes(accent)) hookHtml = esc(hook).replace(esc(accent), () => `<span class="accent">${esc(accent)}</span>`);
+
+// --- captions from the transcript: clip-time words → groups of ≤3 words, one visible at a time
+let words = [];
+const tpath = `${dir}/assets/transcript.json`;
+if (existsSync(tpath)) {
+  const raw = JSON.parse(readFileSync(tpath, 'utf8'));
+  const list = Array.isArray(raw) ? raw : raw.words || (raw.segments || []).flatMap((s) => s.words || []);
+  words = list
+    .map((w) => ({ text: String(w.text ?? w.word ?? '').trim(), start: Number(w.start) - start, end: Number(w.end) - start }))
+    .filter((w) => w.text && !/^[♪�\[(]/.test(w.text) && Number.isFinite(w.start) && w.start >= 0.05 && w.end <= dur);
+}
+const groups = [];
+for (const w of words) {
+  const g = groups[groups.length - 1];
+  const prev = g?.[g.length - 1];
+  const chars = g ? g.reduce((n, x) => n + x.text.length + 1, 0) : 0;
+  if (!g || g.length >= 3 || chars + w.text.length > 18 || w.start - prev.end >= 0.4 || /[.!?…]$/.test(prev.text)) groups.push([w]);
+  else g.push(w);
+}
+const capHtml = [];
+const capJs = [];
+groups.forEach((g, i) => {
+  const gs = Math.max(0.1, g[0].start);
+  const next = groups[i + 1];
+  const ge = Math.min(g[g.length - 1].end + 0.25, next ? Math.max(0.1, next[0].start) : dur);
+  if (ge - gs < 0.05) return;
+  const spans = g.map((w, j) => `<span id="w${i}-${j}" class="w">${esc(w.text)}</span>`).join(' ');
+  capHtml.push(`<div id="cg${i}" class="clip label cap" data-start="${r(gs)}" data-duration="${r(ge - gs)}" data-track-index="5"><div id="cg${i}-in" class="cap-in">${spans}</div></div>`);
+  capJs.push(`tl.fromTo("#cg${i}-in", { scale: 0.86 }, { scale: 1, duration: 0.12, ease: "back.out(2)" }, ${r(gs)});`);
+  g.forEach((w, j) => {
+    capJs.push(`tl.set("#w${i}-${j}", { color: ACCENT }, ${r(Math.max(gs, w.start))});`);
+    if (j < g.length - 1) capJs.push(`tl.set("#w${i}-${j}", { color: INK }, ${r(Math.max(gs, w.end))});`);
+  });
+});
+const zoomJs = zooms.map((t) =>
+  `tl.fromTo("#zoom", { scale: 1 }, { scale: 1.14, duration: 0.18, ease: "power3.out" }, ${r(t)});\n      tl.to("#zoom", { scale: 1, duration: 0.35, ease: "power2.inOut" }, ${r(Math.min(t + 1.3, dur - 0.4))});`);
+
+const html = `<!doctype html>
+<!-- GENERATED by bin/clip-compose from clip.md. Change clip.md and run it again; do not edit by hand. -->
+<html lang="${esc(field('Language') || 'en')}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+    <link rel="stylesheet" href="brand/tokens.css" />
+    <link rel="stylesheet" href="brand/safe-zones.css" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: var(--ground); }
+      #root { position: relative; width: 100%; height: 100%; font-family: var(--font-display); }
+      .pane { position: absolute; overflow: hidden; }
+      .zoom { position: absolute; inset: 0; }
+      .label { position: absolute; left: var(--safe-left); width: calc(1080px - var(--safe-left) - var(--safe-right)); text-align: center; }
+      #hook { top: ${hookTop}px; z-index: 10; }
+      #hook-in { display: inline-block; padding: 18px 30px; border-radius: 22px; background: var(--ground);
+        color: var(--ink); font-size: 68px; font-weight: 900; line-height: 1.08; letter-spacing: -0.02em; text-transform: uppercase; }
+      .accent { color: var(--accent); }
+      #credit { top: ${hookTop - 62}px; z-index: 10; }
+      #credit-in { display: inline-block; padding: 8px 20px; border-radius: 999px; background: var(--ground);
+        color: var(--muted); font-size: 32px; font-weight: 700; }
+      .cap { top: ${r(capTop)}px; z-index: 11; overflow: visible; }
+      .cap-in { display: inline-block; color: var(--ink); font-size: 78px; font-weight: 900; line-height: 1.1;
+        text-transform: uppercase; -webkit-text-stroke: 10px var(--ground); paint-order: stroke fill; }
+      .w { display: inline-block; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="${r(dur)}" data-width="1080" data-height="1920">
+      ${stage}
+      <div id="credit" class="clip label" data-start="0" data-duration="${r(dur)}" data-track-index="3"><div id="credit-in">${esc(credit)}</div></div>
+      <div id="hook" class="clip label" data-start="0" data-duration="${r(dur)}" data-track-index="4"><div id="hook-in">${hookHtml}</div></div>
+      ${capHtml.join('\n      ')}
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const css = getComputedStyle(document.documentElement);
+      const ACCENT = css.getPropertyValue("--accent").trim(), INK = css.getPropertyValue("--ink").trim();
+      tl.fromTo("#hook-in", { scale: 0.9 }, { scale: 1, duration: 0.35, ease: "back.out(1.8)" }, 0);
+      ${[...capJs, ...zoomJs].join('\n      ')}
+      tl.set({}, {}, ${r(dur)});
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>
+`;
+writeFileSync(`${dir}/index.html`, html);
+console.log(`wrote ${dir}/index.html — layout ${layout}, ${r(dur)} s from ${r(start)} s, source ${sw}x${sh}, ${capHtml.length} caption groups${words.length ? '' : ' (no transcript)'}, ${zooms.length} zooms`);

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # bin/check [--quick] [slug] — THE gate of this repo. Any red step aborts with exit != 0.
-#   quick: ffmpeg present, hyperframes lint, 1080x1920 root, pipeline docs + status, no tracked file > 5 MB
+#   quick: ffmpeg present, hyperframes lint, 1080x1920 root, pipeline docs + status, no tracked file > 5 MB,
+#          no clip footage tracked by git
 #   full : quick + `hyperframes check` (runtime, layout, contrast in headless Chrome) + draft render
 #          verified with ffprobe (via bin/render)
-# Without a slug it checks every folder in videos/.
+# Without a slug it checks every folder in videos/ and clips/. A slug is looked up in videos/ first,
+# then clips/. Clips (see AGENTS.md "Clips mode") need clip.md instead of brief/script/plan; a clip
+# whose footage is not on this machine (footage is never in git) is skipped, loudly.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . bin/_env.sh
@@ -13,7 +16,7 @@ for a in "$@"; do
   case "$a" in --quick) quick=1 ;; *) slugs+=("$a") ;; esac
 done
 if [ ${#slugs[@]} -eq 0 ]; then
-  for d in videos/*/; do [ -f "${d}index.html" ] && slugs+=("$(basename "$d")"); done
+  for d in videos/*/ clips/*/; do [ -f "${d}index.html" ] && slugs+=("$(basename "$d")"); done
 fi
 
 step() { echo; echo "== $*"; }
@@ -30,18 +33,44 @@ big=$(git ls-files -z | xargs -0 -I{} find {} -maxdepth 0 -size +5M 2>/dev/null 
 [ -z "$big" ] || fail "too large for git: $big"
 echo "none"
 
+step "clip footage tracked by git"
+# Allowlist: under clips/<slug>/ only the metadata and the generated composition may be tracked.
+media=$(git ls-files clips | grep -vE '^clips/(_inbox\.md|metrics\.csv|[^/]+/(clip\.md|index\.html|hyperframes\.json|meta\.json|brand/[^/]+\.css))$' || true)
+[ -z "$media" ] || fail "only clip.md, index.html, hyperframes.json, meta.json and brand/*.css may be tracked in a clip (public repo): $media"
+echo "none"
+
+field() { sed -n "s/^$2:[[:space:]]*//p" "$1" | head -1; }
+
 [ ${#slugs[@]} -gt 0 ] || { echo; echo "no videos yet"; echo; echo "ALL GREEN"; exit 0; }
 
 for slug in "${slugs[@]}"; do
-  dir="videos/$slug"
+  if [ -d "videos/$slug" ]; then dir="videos/$slug"; kind=video
+  elif [ -d "clips/$slug" ]; then dir="clips/$slug"; kind=clip
+  else fail "no videos/$slug or clips/$slug"; fi
   [ -f "$dir/index.html" ] || fail "$dir/index.html does not exist"
 
-  step "$slug: pipeline docs"
-  for doc in brief script plan; do [ -f "$dir/$doc.md" ] || fail "$dir/$doc.md missing"; done
-  for doc in script plan; do
-    grep -qiE '^Status:[[:space:]]*approved' "$dir/$doc.md" || fail "$dir/$doc.md is not 'Status: approved'"
-  done
-  echo "brief, script (approved), plan (approved)"
+  if [ "$kind" = video ]; then
+    step "$slug: pipeline docs"
+    for doc in brief script plan; do [ -f "$dir/$doc.md" ] || fail "$dir/$doc.md missing"; done
+    for doc in script plan; do
+      grep -qiE '^Status:[[:space:]]*approved' "$dir/$doc.md" || fail "$dir/$doc.md is not 'Status: approved'"
+    done
+    echo "brief, script (approved), plan (approved)"
+  else
+    step "$slug: clip.md"
+    [ -f "$dir/clip.md" ] || fail "$dir/clip.md missing"
+    for key in Series Language Creator Source Layout Hook Credit; do
+      [ -n "$(field "$dir/clip.md" "$key")" ] || fail "$dir/clip.md: '$key:' is empty"
+    done
+    target=$(field "$dir/clip.md" "Target seconds")
+    awk -v t="${target:-0}" 'BEGIN { exit (t >= 7 && t <= 60) ? 0 : 1 }' \
+      || fail "$dir/clip.md: 'Target seconds: ${target:-?}' must be between 7 and 60"
+    echo "series, language, creator, source, layout, hook, credit; ${target}s"
+    if [ ! -f "$dir/assets/source.mp4" ]; then
+      echo "SKIPPED $slug: $dir/assets/source.mp4 is not on this machine (bin/clip-fetch); lint and render not run"
+      continue
+    fi
+  fi
 
   step "$slug: canvas 1080x1920"
   grep -q 'data-width="1080"' "$dir/index.html" && grep -q 'data-height="1920"' "$dir/index.html" \

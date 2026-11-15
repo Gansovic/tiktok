@@ -8,6 +8,7 @@ slug=${1:-}
 echo "$slug" | grep -qE '^[a-z0-9][a-z0-9-]*$' || { echo "usage: bin/new-video <slug>   (lowercase letters, digits, dashes)" >&2; exit 1; }
 dir="videos/$slug"
 [ ! -e "$dir" ] || { echo "ERROR: $dir already exists" >&2; exit 1; }
+[ ! -e "clips/$slug" ] || { echo "ERROR: clips/$slug exists; slugs are shared by renders/" >&2; exit 1; }
 
 mkdir -p "$dir"
 cp -R templates/video/. "$dir/"

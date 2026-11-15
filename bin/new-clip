@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# bin/new-clip <slug> [--layout crop|stack|fit] [--series gta6-es|gta6-en] — create clips/<slug>/ from
+# templates/clip, a snapshot of brand/, and docs/templates/clip.md. Refuses to overwrite. Used by /clip.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+slug=""; layout=crop; series=gta6-es
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --layout) layout=${2:-}; shift 2 ;;
+    --series) series=${2:-}; shift 2 ;;
+    *) slug=$1; shift ;;
+  esac
+done
+usage() { echo "usage: bin/new-clip <slug> [--layout crop|stack|fit] [--series <name under series/>]" >&2; exit 1; }
+echo "$slug" | grep -qE '^[a-z0-9][a-z0-9-]*$' || usage
+case "$layout" in crop|stack|fit) ;; *) usage ;; esac
+[ -f "series/$series/series.md" ] || { echo "ERROR: series/$series/series.md does not exist" >&2; exit 1; }
+dir="clips/$slug"
+[ ! -e "$dir" ] || { echo "ERROR: $dir already exists" >&2; exit 1; }
+[ ! -e "videos/$slug" ] || { echo "ERROR: videos/$slug exists; slugs are shared by renders/" >&2; exit 1; }
+
+lang=$(sed -n 's/^- \*\*Language:\*\*[[:space:]]*\([a-z][a-z]\).*/\1/p' "series/$series/series.md" | head -1)
+mkdir -p "$dir/brand" "$dir/assets"
+cp templates/clip/hyperframes.json templates/clip/meta.json "$dir/"
+cp brand/*.css "$dir/brand/"
+sed "s/<slug>/$slug/g; s/^Series:.*/Series: $series/; s/^Layout:.*/Layout: $layout/; s/^Language:.*/Language: ${lang:-en}/" \
+  docs/templates/clip.md > "$dir/clip.md"
+created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+sed -i '' "s/__SLUG__/$slug/g; s/__CREATED__/$created/g" "$dir/meta.json"
+echo "created $dir (layout $layout, series $series). Next: bin/clip-fetch $slug <url> <from> <to>"

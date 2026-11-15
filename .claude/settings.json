@@ -50,7 +50,9 @@
       "Bash(pnpm add*)",
       "Bash(npx *)",
       "Bash(pnpm exec hyperframes upgrade*)",
-      "Bash(pnpm exec hyperframes update*)"
+      "Bash(pnpm exec hyperframes update*)",
+      "Bash(bin/clip-fetch*)",
+      "Bash(yt-dlp *)"
     ],
     "allow": [
       "Bash(ls *)",
@@ -67,6 +69,11 @@
       "Bash(bin/check*)",
       "Bash(bin/render*)",
       "Bash(bin/new-video*)",
+      "Bash(bin/new-clip*)",
+      "Bash(bin/clip-transcribe*)",
+      "Bash(bin/clip-compose*)",
+      "Bash(bin/check-scope*)",
+      "Bash(pnpm exec hyperframes measure*)",
       "Bash(pnpm exec hyperframes lint*)",
       "Bash(pnpm exec hyperframes check*)",
       "Bash(pnpm exec hyperframes preview*)",

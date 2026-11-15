@@ -11,7 +11,8 @@ What produces each part of a video. Only the first table is in use; the rest is 
 
 ## Undecided
 
-- **Posting and scheduling:** manual upload for now. The reference video
+- **Posting clips:** through Luka's logged-in Chrome, one clip per explicit `post` (ADR 0003, `/post`).
+- **Posting videos and scheduling:** manual upload for now. The reference video
   (https://www.youtube.com/watch?v=unLzowVKEiQ) mentions agents that schedule videos but its tool
   could not be confirmed. Any choice here gets an ADR and stays behind an explicit go.
 - **External voices, image or video generation:** none. Adding one means an API key in `.env`

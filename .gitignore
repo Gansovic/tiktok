@@ -19,3 +19,12 @@ media/
 .claude/settings.local.json
 .DS_Store
 *.log
+
+# clips mode: footage, transcripts and anything else under a clip's assets/ never enters git
+clips/*/assets/
+clips/*/transcript.json
+clips/**/*.mkv
+clips/**/*.ts
+clips/**/*.part
+clips/**/*.srt
+clips/**/*.vtt

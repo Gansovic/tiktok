@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
-# bin/render <slug> [--draft] — render videos/<slug> to renders/<slug>.mp4 (renders/<slug>.draft.mp4
-# with --draft) and assert with ffprobe: 1080x1920, and duration within 1 s of "Target seconds:" in
-# script.md when that line exists.
+# bin/render <slug> [--draft] — render videos/<slug> or clips/<slug> to renders/<slug>.mp4
+# (renders/<slug>.draft.mp4 with --draft) and assert with ffprobe: 1080x1920, and duration within 1 s
+# of "Target seconds:" in script.md (video) or clip.md (clip) when that line exists.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . bin/_env.sh
 
 slug=${1:-}; mode=${2:-}
-[ -n "$slug" ] && [ -f "videos/$slug/index.html" ] || { echo "usage: bin/render <slug> [--draft]" >&2; exit 1; }
+dir=""; doc=""
+if [ -n "$slug" ] && [ -f "videos/$slug/index.html" ]; then dir="videos/$slug"; doc="$dir/script.md"
+elif [ -n "$slug" ] && [ -f "clips/$slug/index.html" ]; then dir="clips/$slug"; doc="$dir/clip.md"
+else echo "usage: bin/render <slug> [--draft]   (videos/<slug> or clips/<slug> with an index.html)" >&2; exit 1; fi
 command -v ffprobe >/dev/null || { echo "ERROR: ffprobe not on PATH (brew install ffmpeg)" >&2; exit 1; }
 
 mkdir -p renders
 if [ "$mode" = "--draft" ]; then out="renders/$slug.draft.mp4"; quality=draft; else out="renders/$slug.mp4"; quality=looks; fi
 out="$PWD/$out"
 
-pnpm exec hyperframes render "videos/$slug" -o "$out" -q "$quality" --quiet
+pnpm exec hyperframes render "$dir" -o "$out" -q "$quality" --quiet
 
 probe=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=nw=1 "$out")
 width=$(echo "$probe" | sed -n 's/^width=//p'); height=$(echo "$probe" | sed -n 's/^height=//p')
@@ -23,8 +26,8 @@ echo "rendered $out — ${width}x${height}, ${duration}s"
 
 [ "$width" = 1080 ] && [ "$height" = 1920 ] || { echo "RED: expected 1080x1920, got ${width}x${height}" >&2; exit 1; }
 
-target=$(sed -n 's/^Target seconds:[[:space:]]*\([0-9.]*\).*/\1/p' "videos/$slug/script.md" 2>/dev/null | head -1)
+target=$(sed -n 's/^Target seconds:[[:space:]]*\([0-9.]*\).*/\1/p' "$doc" 2>/dev/null | head -1)
 if [ -n "$target" ]; then
   awk -v d="$duration" -v t="$target" 'BEGIN { diff = d - t; if (diff < 0) diff = -diff; exit (diff <= 1) ? 0 : 1 }' \
-    || { echo "RED: duration ${duration}s is more than 1 s away from script target ${target}s" >&2; exit 1; }
+    || { echo "RED: duration ${duration}s is more than 1 s away from the target ${target}s" >&2; exit 1; }
 fi

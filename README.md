@@ -40,6 +40,7 @@ What produces narration, captions and media: [docs/integrations.md](docs/integra
 
 ```
 videos/<slug>/    one video = one HyperFrames project plus its brief, script, plan, review
+clips/<slug>/     one clip of a creator's GTA 6 stream: clip.md + generated composition (footage is not in git)
 templates/video/  starter copied by bin/new-video
 brand/            shared palette, fonts, safe zones
 series/           one file per account or recurring format

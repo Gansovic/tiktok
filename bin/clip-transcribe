@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# bin/clip-transcribe <slug> — word-level timestamps for clips/<slug>/assets/source.mp4 with
+# `hyperframes transcribe` (local whisper), in the clip's "Language:". Writes assets/transcript.json.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+. bin/_env.sh
+
+slug=${1:-}; dir="clips/$slug"
+[ -n "$slug" ] && [ -f "$dir/assets/source.mp4" ] || { echo "usage: bin/clip-transcribe <slug>   (needs $dir/assets/source.mp4)" >&2; exit 1; }
+lang=$(sed -n 's/^Language:[[:space:]]*//p' "$dir/clip.md" | head -1)
+# small.en translates other languages into English, so only English gets the .en model. Other
+# languages get medium: small misheard Spanish in the first real clip ("92 por ciento por día").
+if [ "${lang:-en}" = en ]; then model=${MODEL:-small.en}; else model=${MODEL:-medium}; fi
+pnpm exec hyperframes transcribe "$dir/assets/source.mp4" --dir "$dir" --engine whisper --model "$model" --language "${lang:-en}"
+# The pinned CLI writes transcript.json at the project root, newer ones under assets/: keep it in assets/ (ignored).
+[ -f "$dir/transcript.json" ] && mv "$dir/transcript.json" "$dir/assets/transcript.json"
+[ -f "$dir/assets/transcript.json" ] || { echo "ERROR: no $dir/assets/transcript.json written" >&2; exit 1; }
+echo "wrote $dir/assets/transcript.json — read it before composing: whisper invents words over gunfire and silence"

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# bin/clip-fetch <slug> <url> <from> <to> — download ONE section of a public video or VOD into
+# clips/<slug>/assets/source.mp4 (ignored by git) with yt-dlp, padded by PAD seconds (default 5) on
+# both sides, and write Source/From/To/Start into clip.md. The only script here that touches the
+# network; it always asks. Timecodes: SS, MM:SS or HH:MM:SS.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+slug=${1:-}; url=${2:-}; from=${3:-}; to=${4:-}; pad=${PAD:-5}
+[ -n "$to" ] || { echo "usage: bin/clip-fetch <slug> <url> <from> <to>" >&2; exit 1; }
+dir="clips/$slug"
+[ -f "$dir/clip.md" ] || { echo "ERROR: $dir/clip.md does not exist (bin/new-clip $slug)" >&2; exit 1; }
+command -v yt-dlp >/dev/null || { echo "ERROR: yt-dlp not on PATH (brew install yt-dlp deno)" >&2; exit 1; }
+case "$url" in https://*) ;; *) echo "ERROR: url must start with https://" >&2; exit 1 ;; esac
+
+for t in "$from" "$to"; do
+  echo "$t" | grep -qE '^([0-9]+:){0,2}[0-9]+(\.[0-9]+)?$' || { echo "ERROR: bad timecode \"$t\" (use SS, MM:SS or HH:MM:SS)" >&2; exit 1; }
+done
+secs() { echo "$1" | awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; printf "%.3f", s }'; }
+a=$(secs "$from"); b=$(secs "$to")
+awk -v a="$a" -v b="$b" 'BEGIN { exit (b > a && b - a <= 180) ? 0 : 1 }' \
+  || { echo "ERROR: need from < to and at most 180 s between them (got $from → $to)" >&2; exit 1; }
+start=$(awk -v a="$a" -v p="$pad" 'BEGIN { s = a - p; if (s < 0) s = 0; printf "%.3f", s }')
+end=$(awk -v b="$b" -v p="$pad" 'BEGIN { printf "%.3f", b + p }')
+lead=$(awk -v a="$a" -v s="$start" 'BEGIN { printf "%.3f", a - s }')
+
+mkdir -p "$dir/assets"
+# Sort: resolution first (up to 1080), then H.264. No acodec in the sort: it would rank YouTube's 360p
+# combined format above the 1080p video-only ones.
+out="$dir/assets/source.mp4"
+yt-dlp --no-playlist --download-sections "*${start}-${end}" --force-keyframes-at-cuts \
+  -S "res:1080,vcodec:h264" -f "bv[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b" --merge-output-format mp4 --force-overwrites \
+  -o "$out" -- "$url"
+[ -f "$out" ] || { echo "ERROR: yt-dlp did not produce $out" >&2; exit 1; }
+
+set_field() { # key value — replace the "Key:" line in clip.md
+  K="$1" V="$2" perl -i -pe 'BEGIN { $k = $ENV{K}; $v = $ENV{V} } s/^\Q$k\E:.*$/$k: $v/' "$dir/clip.md"
+}
+set_field Source "$url"; set_field From "$from"; set_field To "$to"
+set_field Start "$lead"
+set_field "Target seconds" "$(awk -v a="$a" -v b="$b" 'BEGIN { printf "%.3f", b - a }')"
+got=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out")
+awk -v g="$got" -v s="$start" -v e="$end" 'BEGIN { d = g - (e - s); if (d < 0) d = -d; exit (d <= 1) ? 0 : 1 }' \
+  || echo "WARNING: footage is ${got}s, expected about $(awk -v s="$start" -v e="$end" 'BEGIN { print e - s }')s: check 'Start:' in clip.md against the picture" >&2
+ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=nw=1 "$out"
+echo "fetched $out. Next: bin/clip-transcribe $slug, then fill clip.md and bin/clip-compose $slug"

@@ -3,15 +3,22 @@
 Short vertical videos (TikTok, 1080x1920) built as code: HTML + CSS + GSAP compositions rendered to
 MP4 by [HyperFrames](https://hyperframes.heygen.com) (`hyperframes` CLI, pinned in `package.json`).
 Needs Node 22+ (`.nvmrc`; `bin/*` find it under `~/.nvm` on their own) and FFmpeg on PATH.
-This repo is **public**: no secrets, no copyrighted music, fonts or footage.
+Two modes: **videos** (`videos/`, original, staged pipeline) and **clips** (`clips/`, moments cut from
+creators' GTA 6 streams, short pipeline). This repo is **public**: no secrets, and no copyrighted
+music, fonts or footage in git — clip footage lives only in ignored `clips/<slug>/assets/`.
 
 ## Commands (use these, do not invent others)
 
 ```
 bin/new-video <slug>          # copy templates/video + brand/ + doc templates into videos/<slug>/
-bin/check [--quick] [slug]    # THE gate: lint, 1080x1920, docs status, file sizes; full = + runtime check + draft render
+bin/check [--quick] [slug]    # THE gate, videos and clips: lint, 1080x1920, docs, file sizes, no clip footage in git;
+                              # full = + runtime check + draft render
 bin/check-scope [plan]        # branch diff stays inside videos/<slug>/** and the plan's "## Files"
 bin/render <slug> [--draft]   # render to renders/<slug>.mp4 and assert size + duration with ffprobe
+bin/new-clip <slug> [--layout crop|stack|fit] [--series gta6-es|gta6-en]   # clips/<slug>/ + clip.md
+bin/clip-fetch <slug> <url> <from> <to>   # yt-dlp, ONE section (≤180 s) into assets/; always asks
+bin/clip-transcribe <slug>    # word timings → assets/transcript.json (local whisper; first run downloads the model)
+bin/clip-compose <slug>       # clip.md + footage + transcript → index.html (generated, never hand-edited)
 pnpm exec hyperframes preview videos/<slug> --background   # studio preview; --status / --stop
 pnpm exec hyperframes snapshot videos/<slug> --at 1,3,5    # PNG frames to look at before rendering
 ```
@@ -23,10 +30,13 @@ Dependencies are added by Luka (`pnpm add` always asks).
 ```
 videos/<slug>/      one video = one HyperFrames project: brief.md, script.md, plan.md, review.md,
                     index.html, compositions/, assets/, brand/ (snapshot copied at creation)
+clips/<slug>/       one clip: clip.md (source, creator, hook, layout, status), generated index.html,
+                    assets/ (footage + transcript, ignored). clips/_inbox.md, clips/metrics.csv
 templates/video/    1080x1920 starter copied by bin/new-video
 brand/              tokens.css (palette, fonts), safe-zones.css — source of truth for the look
 series/<name>/      series.md per account/series: audience, voice, language, format, cadence
-docs/templates/     brief, script, plan, review       docs/adr/    decisions
+docs/templates/     brief, script, plan, review, clip       docs/adr/    decisions
+docs/clips/         playbook.md (what to clip, how, what never), creators.md (watchlist + stance)
 docs/integrations.md   what produces narration, captions, music; posting (manual for now)
 renders/            output MP4s, ignored by git
 ```
@@ -44,7 +54,27 @@ renders/            output MP4s, ignored by git
 
 Hard rule: **no edits to `index.html`, `compositions/` or `assets/` of a video without an approved
 plan**. If the diff needs a file that is not in `## Files`, stop and ask Luka to widen the plan.
-Do not widen it yourself. Publishing is not a stage yet: it is manual and always asks.
+Do not widen it yourself. Publishing a video is not a stage yet: it is manual and always asks.
+
+## Clips mode (anything under `clips/`, ADR 0002)
+
+| Stage | Skill | Leaves | Gate |
+|---|---|---|---|
+| 1 Scout | `/scout <creator or URL>` | rows in `clips/_inbox.md` | Luka picks |
+| 2 Clip | `/clip <slug>` | `clip.md`, `index.html`, `renders/<slug>.mp4` | `bin/check <slug>` green; Luka watches, writes `ship` |
+| Post | `/post <slug>` | TikTok URL in `Posted:` | **only after Luka writes `post` for that clip** (ADR 0003) |
+| 3 Metrics | `/metrics` | rows in `clips/metrics.csv` | numbers from Luka, never scraped |
+
+- Read `docs/clips/playbook.md` first. Never: leaks or pre-release footage, isolated cutscenes,
+  endings, creators marked `no`, cuts that change what the creator meant.
+- Every clip carries our hook from frame 0, karaoke captions checked against the audio, and the
+  creator's credit on screen. A bare re-upload is not a clip.
+- `clip.md` is the source; `index.html` is generated. Change the look in `bin/clip-compose`, after asking.
+- Footage, transcript files and renders are never committed (the caption words do end up in the
+  generated `index.html`). A takedown request is honoured the same day.
+- Posting: Claude uploads through Luka's logged-in Chrome, one clip per explicit `post`. `ship` is not
+  `post`. A warning, captcha or unexpected screen means stop and report. Nothing else on the account.
+- The video rules below apply too, except narration and the approved-plan rule.
 
 ## Video rules
 
