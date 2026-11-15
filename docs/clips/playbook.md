@@ -52,7 +52,8 @@ in full, shares, new followers, % from For You vs Search.
 Rough targets for a new account (v): full-watch 50–70 % under 30 s; average watch ≥ 70 % of length on
 10–15 s clips; shares > 1 % of views.
 
-Language decision: on 2026-11-25 compare median views per clip, 3 s retention and full-watch between
+Only `gta6-es` is live; `gta6-en` starts around 2026-11-18. Language decision: once `gta6-en` has a
+week of posts (about 2026-11-25, later if it starts late) compare median views per clip, 3 s retention and full-watch between
 `gta6-es` and `gta6-en`; 70 % of the time goes to the winner. Review weekly.
 
 ## Money (not a goal yet)

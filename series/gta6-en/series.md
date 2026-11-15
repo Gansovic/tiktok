@@ -2,7 +2,7 @@
 
 Clips mode (see AGENTS.md). One TikTok account, English only.
 
-- **Account:** not created yet
+- **Account:** not created yet — planned for 2026-11-18 (Luka, 2026-11-15); until then all work goes to `gta6-es`
 - **Audience:** English-speaking GTA fans who follow the launch through streamers
 - **Promise:** the best GTA 6 moment of the day from English-speaking creators, in under 30 seconds
 - **Voice:** hook text in English, direct, no clickbait the clip does not pay off; never speaks for the creator
