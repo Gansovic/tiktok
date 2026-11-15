@@ -1,0 +1,16 @@
+/* Safe area for a 1080x1920 canvas: keep text and key visuals inside `.safe`.
+   Starting values, not verified against TikTok's current UI. Adjust after checking a real upload:
+   top = status/search bar, right = action buttons, bottom = caption, handle and music ticker. */
+:root {
+  --safe-top: 160px;
+  --safe-right: 140px;
+  --safe-bottom: 420px;
+  --safe-left: 60px;
+}
+.safe {
+  position: absolute;
+  top: var(--safe-top);
+  right: var(--safe-right);
+  bottom: var(--safe-bottom);
+  left: var(--safe-left);
+}

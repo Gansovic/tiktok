@@ -1,0 +1,12 @@
+/* Shared look. Source of truth: brand/. bin/new-video copies a snapshot into each video. */
+:root {
+  --ground: #0b0b0f;
+  --ink: #ffffff;
+  --accent: #ffd60a;
+  --muted: #a1a1aa;
+  --font-display: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-body: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --size-hook: 112px;
+  --size-body: 64px;
+  --size-caption: 56px;
+}
